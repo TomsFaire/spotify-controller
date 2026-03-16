@@ -1,0 +1,24 @@
+{
+	"name": "techministry-spotifycontroller",
+	"version": "2.4.0",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"format": "prettier --write .",
+		"pack:companion": "companion-module-build",
+		"pack:companion:legacy": "bash scripts/pack-for-companion.sh"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-techministry-spotifycontroller.git"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"@companion-module/base": "^1.12.0",
+		"socket.io-client": "^4.5.1"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^2.6.1",
+		"prettier": "^3.5.3"
+	}
+}

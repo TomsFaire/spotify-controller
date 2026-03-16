@@ -11,3 +11,13 @@ docs/PRIVATE_FORK.md
 docs/PR_*.md
 docs/PR_NEXT_STEPS.md
 docs/TESTING_*.md
+
+# Companion module (we track its source; backup of its .git and build artifacts ignored)
+companion-module/.git
+companion-module/.git.bak
+companion-module/node_modules
+companion-module/*.tgz
+companion-module/pkg
+companion-module/dist-pack
+companion-module/**/Icon*
+**/Icon?
