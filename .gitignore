@@ -2,3 +2,12 @@ node_modules/
 package-lock.json
 .DS_Store
 dist/
+
+# Internal / planning docs (do not commit)
+PRIVATE_FORK.md
+docs/PRIVATE_FORK.md
+*plan*.md
+*PLAN*.md
+docs/PR_*.md
+docs/PR_NEXT_STEPS.md
+docs/TESTING_*.md
