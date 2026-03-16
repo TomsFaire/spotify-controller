@@ -55,18 +55,17 @@ module.exports = {
 			options: [
 				{
 					type: 'textinput',
-					label: 'Seconds',
+					label: 'Position (seconds, mm:ss, or hh:mm:ss)',
 					id: 'seconds',
-					tooltip: 'Set Player Position to this position (in seconds). Supports variables, e.g. $(google-sheets:D3)',
+					tooltip: 'Position: seconds (e.g. 90), mm:ss (e.g. 1:30), or hh:mm:ss (e.g. 1:30:00). Supports variables.',
 					default: '0',
 					useVariables: true,
 				},
 			],
 			callback: async (action) => {
-				let secondsStr = await self.parseVariablesInString(action.options.seconds || '0')
-				let seconds = parseFloat(secondsStr, 10)
-				if (Number.isNaN(seconds)) seconds = 0
-				self.sendCommand('setPlayerPosition', seconds)
+				let value = await self.parseVariablesInString(action.options.seconds || '0')
+				value = (value || '0').toString().trim()
+				self.sendCommand('setPlayerPosition', value)
 			},
 		}
 

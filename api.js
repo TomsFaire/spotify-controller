@@ -20,6 +20,21 @@ const { exec } = require('child_process')
 const isMac = os.platform() === 'darwin'
 const isWindows = os.platform() === 'win32'
 
+// Parse position input: seconds (90), mm:ss (1:30), or hh:mm:ss (1:30:00). Returns seconds or NaN.
+function parseTimeToSeconds(input) {
+	if (input == null || input === '') return NaN
+	const str = String(input).trim()
+	const num = Number(str)
+	if (!Number.isNaN(num) && str.indexOf(':') === -1) return num
+	const parts = str.split(':').map(function (p) {
+		return parseInt(p, 10)
+	})
+	if (parts.some(Number.isNaN)) return NaN
+	if (parts.length === 2) return parts[0] * 60 + parts[1]
+	if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+	return NaN
+}
+
 // macOS system volume (Spotify's AppleScript "sound volume" is broken on many versions)
 function systemVolumeUp() {
 	const script = `set v to output volume of (get volume settings)
@@ -173,8 +188,9 @@ function movePlayerPosition(seconds) {
 	})
 }
 
-function setPlayerPosition(seconds) {
-	const pos = Math.max(0, Math.floor(Number(seconds))) || 0
+function setPlayerPosition(secondsOrTime) {
+	const seconds = typeof secondsOrTime === 'number' ? secondsOrTime : parseTimeToSeconds(secondsOrTime)
+	const pos = Number.isNaN(seconds) ? 0 : Math.max(0, Math.floor(seconds))
 	const positionScript = `tell application "Spotify"
 		set player position to ${pos}
 	end tell`
@@ -562,16 +578,16 @@ module.exports = {
 				})
 			})
 
-			socket.on('setPlayerPosition', function (seconds) {
+			socket.on('setPlayerPosition', function (secondsOrTime) {
 				if (!config.get('allowControl')) {
 					socket.emit('control_status', false)
 					return
 				}
 				runSerial(function (done) {
 					if (isMac) {
-						const pos = typeof seconds === 'number' ? seconds : parseFloat(seconds, 10)
+						const pos = typeof secondsOrTime === 'number' ? secondsOrTime : parseTimeToSeconds(secondsOrTime)
 						if (Number.isNaN(pos) || pos < 0) {
-							socket.emit('error', 'Set Player Position: invalid seconds (use 0 or a positive number)')
+							socket.emit('error', 'Set Player Position: use seconds (e.g. 90), mm:ss (e.g. 1:30), or hh:mm:ss (e.g. 1:30:00)')
 							done()
 							return
 						}
