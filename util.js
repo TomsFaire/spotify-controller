@@ -10,9 +10,9 @@ const API = require('./api.js')
 function showNotification() {
 	const icon = nativeImage.createFromDataURL(config.get('icon'))
 
-	if (STATUS.playbackInfo.playerState === 'Playing' && config.get('showNotifications')) {
-		const NOTIFICATION_TITLE = STATUS.playbackInfo.name
-		const NOTIFICATION_BODY = STATUS.playbackInfo.artist
+	if (global.STATUS.playbackInfo.playerState === 'Playing' && config.get('showNotifications')) {
+		const NOTIFICATION_TITLE = global.STATUS.playbackInfo.name
+		const NOTIFICATION_BODY = global.STATUS.playbackInfo.artist
 		new Notification({
 			title: NOTIFICATION_TITLE,
 			subtitle: NOTIFICATION_BODY,
@@ -29,7 +29,7 @@ module.exports = {
 				//do the stuff with the things
 				switch (event) {
 					case 'com.spotify.client.PlaybackStateChanged':
-						STATUS.playbackInfo = _.mapKeys(info, (v, k) => _.camelCase(k))
+						global.STATUS.playbackInfo = _.mapKeys(info, (v, k) => _.camelCase(k))
 						API.sendUpdates()
 						showNotification()
 						break

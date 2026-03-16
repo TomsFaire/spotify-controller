@@ -20,6 +20,27 @@ const { exec } = require('child_process')
 const isMac = os.platform() === 'darwin'
 const isWindows = os.platform() === 'win32'
 
+// macOS system volume (Spotify's AppleScript "sound volume" is broken on many versions)
+function systemVolumeUp() {
+	const script = `set v to output volume of (get volume settings)
+	if v < 100 then set volume output volume (v + 10)`
+	return osascript(script)
+}
+function systemVolumeDown() {
+	const script = `set v to output volume of (get volume settings)
+	if v > 0 then set volume output volume (v - 10)`
+	return osascript(script)
+}
+function setSystemVolume(percent) {
+	const p = Math.min(100, Math.max(0, Math.round(Number(percent))))
+	const script = `set volume output volume ${p}`
+	return osascript(script)
+}
+function setSystemMuted(muted) {
+	const script = `set volume output muted ${muted ? 'true' : 'false'}`
+	return osascript(script)
+}
+
 function openSpotifyUri(uri) {
 	if (isWindows) {
 		exec(`start ${uri}`, (err) => {
@@ -29,119 +50,123 @@ function openSpotifyUri(uri) {
 }
 
 function updateClients() {
-	io.sockets.emit('state_change', STATUS)
-	io.sockets.emit('ramping_state', global.RAMPING)
+	if (io && io.sockets) {
+		io.sockets.emit('state_change', global.STATUS)
+		io.sockets.emit('ramping_state', global.RAMPING)
+	}
 }
 
-function getState() {
+function getState(callback) {
 	updateClients()
 
 	spotify.getState(function (err, state) {
 		if (state && state.position) {
-			STATUS.playbackInfo.playbackPosition = state.position
-			STATUS.state = state
-			//STATUS.playbackInfo.playerState = state.state;
+			global.STATUS.playbackInfo.playbackPosition = state.position
+			global.STATUS.state = state
 
 			spotify.isRepeating(function (err, repeating) {
-				STATUS.state.isRepeating = repeating
+				global.STATUS.state.isRepeating = repeating
 
 				spotify.isShuffling(function (err, shuffling) {
-					STATUS.state.isShuffling = shuffling
-
+					global.STATUS.state.isShuffling = shuffling
 					updateClients()
+					if (typeof callback === 'function') callback()
 				})
 			})
+		} else {
+			if (typeof callback === 'function') callback()
 		}
-		return state
 	})
 }
 
-function rampVolume(volume, changePercent = 5, rampTime = 3) {
-	if (global.RAMPING == true) {
-		//currently ramping, cannot ramp again
+// Serialize Spotify/AppleScript commands to prevent overlapping runs and crashes
+const commandQueue = []
+let queueRunning = false
+function runSerial(fn) {
+	commandQueue.push(fn)
+	if (!queueRunning) processNext()
+}
+function processNext() {
+	if (commandQueue.length === 0) {
+		queueRunning = false
 		return
-	} else {
-		global.RAMPING = true
-		//STATUS.playbackInfo.playerState = `Ramping Volume to ${volume}`;
-		updateClients()
+	}
+	queueRunning = true
+	const fn = commandQueue.shift()
+	fn(function () {
+		processNext()
+	})
+}
 
-		let rampScript = `tell application "Spotify"
-			set currentVolume to get sound volume
-			set desiredVolume to ${volume}
+// Ramp system output volume (same volume system as up/down/set)
+function rampVolume(volume, changePercent = 5, rampTime = 3, callback) {
+	if (global.RAMPING == true) {
+		if (typeof callback === 'function') callback()
+		return Promise.resolve()
+	}
+	global.RAMPING = true
+	updateClients()
 
-			set changePercent to ${changePercent}
+	const desired = Math.min(100, Math.max(0, Math.round(Number(volume))))
+	const step = Math.max(1, Math.min(10, Math.round(Number(changePercent))))
+	const rampSecs = Math.max(1, Math.min(60, Number(rampTime)))
 
-			if changePercent < 1 then
-				set changePercent to 1 --wanting to avoid a divide by zero error
-			end if
-
-			set rampTime to ${rampTime}
-
-			--to avoid a negative delay, we need to know which is higher
-			set higherVolume to currentVolume
-			set lowerVolume to desiredVolume
-
-			if lowerVolume > higherVolume then
-				set higherVolume to desiredVolume
-				set lowerVolume to currentVolume
-			end if
-
-			set totalSteps to (higherVolume - lowerVolume) / changePercent
-
-			if totalSteps < 1 then
-				set totalSteps to 1 --wanting to avoid a divide by zero error
-			end if
-
-			set delayTime to rampTime / totalSteps
-
-			if delayTime < 0.1 then
-				set delayTime to 0.1 --cant have delay time less than .1 second
-			end if
-
-			--display dialog "Ramping Volume from " & currentVolume & " to " & desiredVolume & " over " & rampTime & " seconds with " & totalSteps & " steps: " & delayTime buttons {"OK"} default button 1 with icon 1 giving up after 5
-			
-			if currentVolume < desiredVolume then
-				repeat while currentVolume < desiredVolume
-					if currentVolume > desiredVolume then
-						set sound volume to desiredVolume
-					else
-						set sound volume to currentVolume + changePercent
-					end if
-					set currentVolume to get sound volume
-					delay delayTime
-				end repeat
+	const rampScript = `
+		set currentVol to output volume of (get volume settings)
+		set desiredVol to ${desired}
+		set stepSize to ${step}
+		set rampTime to ${rampSecs}
+		if stepSize < 1 then set stepSize to 1
+		set diff to desiredVol - currentVol
+		if diff < 0 then set stepSize to -stepSize
+		set totalSteps to (diff / stepSize) as integer
+		if totalSteps < 0 then set totalSteps to -totalSteps
+		if totalSteps < 1 then set totalSteps to 1
+		set delayTime to rampTime / totalSteps
+		if delayTime < 0.05 then set delayTime to 0.05
+		repeat with i from 1 to totalSteps
+			set currentVol to output volume of (get volume settings)
+			if stepSize > 0 then
+				if currentVol < desiredVol then set volume output volume (currentVol + stepSize)
 			else
-				repeat while currentVolume > desiredVolume
-					if currentVolume < desiredVolume then
-						set sound volume to desiredVolume
-					else
-						set sound volume to currentVolume - changePercent
-					end if
-					set currentVolume to get sound volume
-					delay delayTime
-				end repeat
+				if currentVol > desiredVol then set volume output volume (currentVol + stepSize)
 			end if
-			set sound volume to desiredVolume
-			
-		end tell`
+			delay delayTime
+		end repeat
+		set volume output volume desiredVol
+	`
 
-		return osascript(rampScript).then(function (response) {
+	return osascript(rampScript)
+		.then(function (response) {
 			global.RAMPING = false
 			updateClients()
-			getState()
+			if (typeof callback === 'function') {
+				getState(callback)
+			} else {
+				getState()
+			}
 			return response
 		})
-	}
+		.catch(function (err) {
+			global.RAMPING = false
+			updateClients()
+			if (typeof callback === 'function') callback()
+			throw err
+		})
 }
 
 function movePlayerPosition(seconds) {
-	let positionScript = `tell application "Spotify"
+	const delta = Number(seconds)
+	if (Number.isNaN(delta)) {
+		return Promise.reject(new Error('Invalid seconds for move position'))
+	}
+	const positionScript = `tell application "Spotify"
 		set currentPosition to get player position
-		set desiredPosition to (currentPosition + ${seconds})
+		set desiredPosition to (currentPosition + ${delta})
 		set player position to desiredPosition
 	end tell`
 
-	STATUS.playbackInfo.playerState = `Moving Player Position ${seconds} seconds`
+	global.STATUS.playbackInfo.playerState = `Moving Player Position ${delta} seconds`
 
 	return osascript(positionScript).then(function (response) {
 		return response
@@ -149,12 +174,12 @@ function movePlayerPosition(seconds) {
 }
 
 function setPlayerPosition(seconds) {
-	let positionScript = `tell application "Spotify"
-		set desiredPosition to ${seconds}
-		set player position to desiredPosition
+	const pos = Math.max(0, Math.floor(Number(seconds))) || 0
+	const positionScript = `tell application "Spotify"
+		set player position to ${pos}
 	end tell`
 
-	STATUS.playbackInfo.playerState = `Setting Player Position ${seconds} seconds`
+	global.STATUS.playbackInfo.playerState = `Setting Player Position ${pos} seconds`
 
 	return osascript(positionScript).then(function (response) {
 		return response
@@ -178,7 +203,7 @@ module.exports = {
 		})
 
 		server.get('/state', function (req, res) {
-			res.send({ playbackInfo: STATUS.playbackInfo, state: STATUS.state })
+			res.send({ playbackInfo: global.STATUS.playbackInfo, state: global.STATUS.state })
 		})
 
 		server.get('/play', function (req, res) {
@@ -446,185 +471,428 @@ module.exports = {
 			})
 
 			socket.on('state', function () {
-				getState()
+				runSerial(function (done) {
+					getState(done)
+				})
 			})
 
 			socket.on('play', function () {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.play()
-					else if (isWindows) openSpotifyUri('spotify:app')
-					else socket.emit('error', 'Platform not supported')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.play(function () {
+							getState(done)
+						})
+					} else if (isWindows) {
+						openSpotifyUri('spotify:app')
+						done()
+					} else {
+						socket.emit('error', 'Platform not supported')
+						done()
+					}
+				})
 			})
 
 			socket.on('pause', function () {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.pause()
-					else socket.emit('error', 'Pause not supported on Windows')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.pause(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Pause not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('playToggle', function () {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.playPause()
-					else socket.emit('error', 'Play/Pause toggle not supported on Windows')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.playPause(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Play/Pause toggle not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('movePlayerPosition', function (seconds) {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						movePlayerPosition(seconds)
-						getState()
-					} else socket.emit('error', 'Seek not supported on Windows')
-				} else socket.emit('control_status', false)
+						const delta = typeof seconds === 'number' ? seconds : parseFloat(seconds, 10)
+						if (Number.isNaN(delta)) {
+							socket.emit('error', 'Move Player Position: invalid seconds')
+							done()
+							return
+						}
+						movePlayerPosition(delta)
+							.then(function () {
+								// Delay before getState so Spotify can finish seeking
+								setTimeout(function () {
+									getState(done)
+								}, 600)
+							})
+							.catch(function (err) {
+								console.error('Move player position failed:', err)
+								socket.emit('error', 'Move position failed: ' + (err && err.message ? err.message : err))
+								done()
+							})
+					} else {
+						socket.emit('error', 'Seek not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('setPlayerPosition', function (seconds) {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						setPlayerPosition(seconds)
-						getState()
-					} else socket.emit('error', 'Seek not supported on Windows')
-				} else socket.emit('control_status', false)
+						const pos = typeof seconds === 'number' ? seconds : parseFloat(seconds, 10)
+						if (Number.isNaN(pos) || pos < 0) {
+							socket.emit('error', 'Set Player Position: invalid seconds (use 0 or a positive number)')
+							done()
+							return
+						}
+						setPlayerPosition(pos)
+							.then(function () {
+								// Delay before getState so Spotify can finish seeking; calling getState
+								// too soon can cause the position to jump back to 0
+								setTimeout(function () {
+									getState(done)
+								}, 600)
+							})
+							.catch(function (err) {
+								console.error('Set player position failed:', err)
+								socket.emit('error', 'Set position failed: ' + (err && err.message ? err.message : err))
+								done()
+							})
+					} else {
+						socket.emit('error', 'Seek not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('playtrack', function (track) {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.playTrack(track)
-					else if (isWindows) openSpotifyUri(`spotify:track:${track}`)
-					else socket.emit('error', 'Platform not supported')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.playTrack(track, function () {
+							getState(done)
+						})
+					} else if (isWindows) {
+						openSpotifyUri(`spotify:track:${track}`)
+						done()
+					} else {
+						socket.emit('error', 'Platform not supported')
+						done()
+					}
+				})
 			})
 
 			socket.on('playtrackincontext', function (track, context) {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.playTrackInContext(track, context)
-					else if (isWindows) openSpotifyUri(`spotify:${context}:${track}`)
-					else socket.emit('error', 'Platform not supported')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.playTrackInContext(track, context, function () {
+							getState(done)
+						})
+					} else if (isWindows) {
+						openSpotifyUri(`spotify:${context}:${track}`)
+						done()
+					} else {
+						socket.emit('error', 'Platform not supported')
+						done()
+					}
+				})
 			})
 
 			socket.on('next', function () {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.next()
-					else socket.emit('error', 'Next not supported on Windows')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.next(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Next not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('previous', function () {
-				if (config.get('allowControl')) {
-					if (isMac) spotify.previous()
-					else socket.emit('error', 'Previous not supported on Windows')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
+					if (isMac) {
+						spotify.previous(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Previous not supported on Windows')
+						done()
+					}
+				})
 			})
 
 			socket.on('volumeUp', function () {
-				if (config.get('allowControl')) {
-					if (isMac && global.RAMPING == false) {
-						spotify.volumeUp()
-						getState()
-					} else socket.emit('error', 'Volume control not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac || global.RAMPING === true) {
+					socket.emit('error', 'Volume control not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					// Spotify's AppleScript "sound volume" is broken on many macOS/Spotify versions.
+					// Use system output volume so Volume Up/Down always have an effect.
+					systemVolumeUp()
+						.then(function () {
+							getState(done)
+						})
+						.catch(function (err) {
+							console.error('Volume up failed:', err)
+							socket.emit('error', 'Volume up failed: ' + (err && err.message ? err.message : err))
+							getState(done)
+						})
+				})
 			})
 
 			socket.on('volumeDown', function () {
-				if (config.get('allowControl')) {
-					if (isMac && global.RAMPING == false) {
-						spotify.volumeDown()
-						getState()
-					} else socket.emit('error', 'Volume control not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac || global.RAMPING === true) {
+					socket.emit('error', 'Volume control not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					systemVolumeDown()
+						.then(function () {
+							getState(done)
+						})
+						.catch(function (err) {
+							console.error('Volume down failed:', err)
+							socket.emit('error', 'Volume down failed: ' + (err && err.message ? err.message : err))
+							getState(done)
+						})
+				})
 			})
 
 			socket.on('setVolume', function (volume) {
-				if (config.get('allowControl')) {
-					if (isMac && global.RAMPING == false) {
-						spotify.setVolume(volume)
-						getState()
-					} else socket.emit('error', 'Volume control not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac || global.RAMPING === true) {
+					socket.emit('error', 'Volume control not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					setSystemVolume(volume)
+						.then(function () {
+							getState(done)
+						})
+						.catch(function (err) {
+							console.error('Set volume failed:', err)
+							socket.emit('error', 'Set volume failed: ' + (err && err.message ? err.message : err))
+							getState(done)
+						})
+				})
 			})
 
 			socket.on('rampVolume', function (volume, changePercent, rampTime) {
-				if (config.get('allowControl')) {
-					if (isMac && global.RAMPING == false) {
-						rampVolume(volume, changePercent, rampTime)
-						getState()
-					} else socket.emit('error', 'Ramp volume not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac || global.RAMPING === true) {
+					socket.emit('error', 'Ramp volume not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					rampVolume(volume, changePercent, rampTime, done)
+				})
 			})
 
 			socket.on('mute', function () {
-				if (config.get('allowControl')) {
-					if (isMac) {
-						spotify.muteVolume()
-						getState()
-					} else socket.emit('error', 'Mute not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac) {
+					socket.emit('error', 'Mute not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					setSystemMuted(true)
+						.then(function () {
+							getState(done)
+						})
+						.catch(function (err) {
+							console.error('Mute failed:', err)
+							getState(done)
+						})
+				})
 			})
 
 			socket.on('unmute', function () {
-				if (config.get('allowControl')) {
-					if (isMac) {
-						spotify.unmuteVolume()
-						getState()
-					} else socket.emit('error', 'Unmute not supported on this platform')
-				} else socket.emit('control_status', false)
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				if (!isMac) {
+					socket.emit('error', 'Unmute not supported on this platform')
+					return
+				}
+				runSerial(function (done) {
+					setSystemMuted(false)
+						.then(function () {
+							getState(done)
+						})
+						.catch(function (err) {
+							console.error('Unmute failed:', err)
+							getState(done)
+						})
+				})
 			})
 
 			socket.on('repeatOn', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.setRepeating(true)
-						getState()
-					} else socket.emit('error', 'Repeat not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.setRepeating(true, function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Repeat not supported on this platform')
+						done()
+					}
+				})
 			})
 
 			socket.on('repeatOff', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.setRepeating(false)
-						getState()
-					} else socket.emit('error', 'Repeat not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.setRepeating(false, function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Repeat not supported on this platform')
+						done()
+					}
+				})
 			})
 
 			socket.on('repeatToggle', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.toggleRepeating()
-						getState()
-					} else socket.emit('error', 'Repeat toggle not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.toggleRepeating(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Repeat toggle not supported on this platform')
+						done()
+					}
+				})
 			})
 
 			socket.on('shuffleOn', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.setShuffling(true)
-						getState()
-					} else socket.emit('error', 'Shuffle not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.setShuffling(true, function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Shuffle not supported on this platform')
+						done()
+					}
+				})
 			})
 
 			socket.on('shuffleOff', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.setShuffling(false)
-						getState()
-					} else socket.emit('error', 'Shuffle not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.setShuffling(false, function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Shuffle not supported on this platform')
+						done()
+					}
+				})
 			})
 
 			socket.on('shuffleToggle', function () {
-				if (config.get('allowControl')) {
+				if (!config.get('allowControl')) {
+					socket.emit('control_status', false)
+					return
+				}
+				runSerial(function (done) {
 					if (isMac) {
-						spotify.toggleShuffling()
-						getState()
-					} else socket.emit('error', 'Shuffle toggle not supported on this platform')
-				} else socket.emit('control_status', false)
+						spotify.toggleShuffling(function () {
+							getState(done)
+						})
+					} else {
+						socket.emit('error', 'Shuffle toggle not supported on this platform')
+						done()
+					}
+				})
 			})
 		})
 
