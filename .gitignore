@@ -3,6 +3,9 @@ package-lock.json
 .DS_Store
 dist/
 
+# Cursor IDE (local only, do not commit)
+.cursor/
+
 # Internal / planning docs (do not commit)
 PRIVATE_FORK.md
 docs/PRIVATE_FORK.md

@@ -9,6 +9,9 @@ To have Git **everywhere** ignore these files (without editing each project’s 
 
 2. **Add these lines** to `~/.gitignore_global`:
    ```
+   # Cursor IDE (local only)
+   .cursor/
+
    # Internal / planning docs
    PRIVATE_FORK.md
    docs/PRIVATE_FORK.md
