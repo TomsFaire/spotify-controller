@@ -30,9 +30,11 @@ jobs:
       - name: Zip app for artifact
         run: |
           cd dist
-          # electron-builder --mac --dir outputs mac-arm64 on ARM runners (macos-latest)
+          # electron-builder --mac --dir outputs mac-arm64 on ARM (macos-latest) or mac on x64
           dir=$(ls -d mac* 2>/dev/null | head -1)
-          zip -r spotify-controller-mac.zip "$dir"
+          if [ -z "$dir" ]; then echo "No mac* dir in dist"; exit 1; fi
+          # Zip contents so spotify-controller.app is at root of archive (no mac-arm64/ prefix)
+          (cd "$dir" && zip -r ../spotify-controller-mac.zip .)
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4

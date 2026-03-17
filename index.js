@@ -100,7 +100,7 @@ app.on('activate', async () => {
 	//Menu.setApplicationMenu(menu);
 	//mainWindow = await createMainWindow();
 
-	const icon = nativeImage.createFromDataURL(config.get('icon'))
+	const icon = util.getIcon()
 	tray = new Tray(icon.resize({ width: 24, height: 24 }))
 
 	const contextMenu = Menu.buildFromTemplate([
