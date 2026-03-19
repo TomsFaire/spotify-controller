@@ -45,15 +45,20 @@ _(All available on Mac; limited on Windows)_
 - **Current Track Playback Position**
 - **Track ID**
 - **Player State**
-- **Current Volume Level**
+- **Volume (0–100)** — numeric level from macOS system output _(Mac; matches Set Volume actions)_
+- **Volume with % (e.g. 72%)** — same value with a % suffix for button labels
 
 ## Available Feedbacks
 
 - Change button color if playback is in **X** state (Playing, Paused, Stopped) _(Mac only)_
+- **Volume: below** — when volume is strictly below a threshold, apply your chosen style (colors, text size, alignment, optional text, top bar) _(Mac only)_
+- **Volume: between** — when volume is between two values (inclusive), apply style _(Mac only)_
+- **Volume: above** — when volume is strictly above a threshold, apply style _(Mac only)_  
+  Stack several of these on one button for multi-zone styling (e.g. green / orange / red bands).
 
 ## Available Presets
 
 - Play/Pause (with icons)
 - Volume Up/Down/50%/100%
-- Volume Level on Button _(Mac only)_
+- Volume Level on Button (with zone colors) _(Mac only)_
 - Current Track Name on Button

@@ -201,7 +201,7 @@ module.exports = {
 			category: 'Volume',
 			name: 'Volume Level',
 			style: {
-				text: 'VOL:\\n$(spotify-controller:volume)',
+				text: 'VOL:\\n$(spotify-controller:volume_percent)',
 				size: '18',
 				color: combineRgb(255, 255, 255),
 				bgcolor: combineRgb(0, 0, 0),
@@ -212,7 +212,45 @@ module.exports = {
 					up: [],
 				},
 			],
-			feedbacks: [],
+			feedbacks: [
+				{
+					feedbackId: 'volumeBelow',
+					options: {
+						threshold: 50,
+						vb_bgcolor: combineRgb(22, 163, 74),
+						vb_color: combineRgb(255, 255, 255),
+						vb_size: '18',
+						vb_alignment: 'center:center',
+						vb_show_topbar: true,
+						vb_text: '',
+					},
+				},
+				{
+					feedbackId: 'volumeBetween',
+					options: {
+						low: 50,
+						high: 75,
+						vbt_bgcolor: combineRgb(234, 88, 12),
+						vbt_color: combineRgb(255, 255, 255),
+						vbt_size: '18',
+						vbt_alignment: 'center:center',
+						vbt_show_topbar: true,
+						vbt_text: '',
+					},
+				},
+				{
+					feedbackId: 'volumeAbove',
+					options: {
+						threshold: 75,
+						va_bgcolor: combineRgb(220, 38, 38),
+						va_color: combineRgb(255, 255, 255),
+						va_size: '18',
+						va_alignment: 'center:center',
+						va_show_topbar: true,
+						va_text: '',
+					},
+				},
+			],
 		})
 
 		presets.push({

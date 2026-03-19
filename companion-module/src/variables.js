@@ -16,6 +16,14 @@ function convertHMS(value) {
 	return hours + ':' + minutes + ':' + seconds // Return is HH : MM : SS
 }
 
+function formatVolumeValue(raw) {
+	if (raw === '' || raw === undefined || raw === null) return { volume: '', volume_percent: '' }
+	const n = Number(raw)
+	if (!Number.isFinite(n)) return { volume: '', volume_percent: '' }
+	const v = Math.round(Math.min(100, Math.max(0, n)))
+	return { volume: String(v), volume_percent: `${v}%` }
+}
+
 module.exports = {
 	// ##########################
 	// #### Define Variables ####
@@ -32,7 +40,8 @@ module.exports = {
 		variables.push({ variableId: 'position_hms', name: 'Playback Position (HMS)' })
 		variables.push({ variableId: 'trackid', name: 'Track ID' })
 		variables.push({ variableId: 'player_state', name: 'Player State' })
-		variables.push({ variableId: 'volume', name: 'Current Volume Level' })
+		variables.push({ variableId: 'volume', name: 'Volume (0–100)' })
+		variables.push({ variableId: 'volume_percent', name: 'Volume with % (e.g. 72%)' })
 		variables.push({ variableId: 'rampingState', name: 'Volume Ramping State' })
 		variables.push({ variableId: 'repeat', name: 'Repeat On/Off' })
 		variables.push({ variableId: 'shuffle', name: 'Shuffle On/Off' })
@@ -48,6 +57,7 @@ module.exports = {
 		let self = this
 
 		try {
+			const volFmt = formatVolumeValue(this.STATUS.state && this.STATUS.state.volume)
 			this.setVariableValues({
 				information: this.STATUS.information,
 				version: this.STATUS.version,
@@ -58,7 +68,8 @@ module.exports = {
 				position_hms: convertHMS(Math.round(this.STATUS.playbackInfo.playbackPosition)),
 				trackid: this.STATUS.playbackInfo.trackId,
 				player_state: this.STATUS.playbackInfo.playerState,
-				volume: this.STATUS.state.volume,
+				volume: volFmt.volume,
+				volume_percent: volFmt.volume_percent,
 				rampingState: this.STATUS.rampingState ? 'Currently Ramping' : 'Not Ramping',
 				repeat: this.STATUS.state.isRepeating ? 'True' : 'False',
 				shuffle: this.STATUS.state.isShuffling ? 'True' : 'False',

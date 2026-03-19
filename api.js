@@ -56,6 +56,15 @@ function setSystemMuted(muted) {
 	return osascript(script)
 }
 
+/** macOS system output volume 0–100 (matches setVolume / volume up-down). */
+function readMacOutputVolume() {
+	const script = `output volume of (get volume settings)`
+	return osascript(script).then(function (result) {
+		const n = parseInt(String(result).trim(), 10)
+		return Number.isNaN(n) ? null : Math.min(100, Math.max(0, n))
+	})
+}
+
 function openSpotifyUri(uri) {
 	if (isWindows) {
 		exec(`start ${uri}`, (err) => {
@@ -84,8 +93,22 @@ function getState(callback) {
 
 				spotify.isShuffling(function (err, shuffling) {
 					global.STATUS.state.isShuffling = shuffling
-					updateClients()
-					if (typeof callback === 'function') callback()
+					function finishState() {
+						updateClients()
+						if (typeof callback === 'function') callback()
+					}
+					if (isMac) {
+						readMacOutputVolume()
+							.then(function (vol) {
+								if (vol !== null) global.STATUS.state.volume = vol
+							})
+							.catch(function (err) {
+								console.error('Read system output volume failed:', err)
+							})
+							.finally(finishState)
+					} else {
+						finishState()
+					}
 				})
 			})
 		} else {
