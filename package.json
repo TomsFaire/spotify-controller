@@ -42,7 +42,9 @@
 				"nsis"
 			],
 			"icon": "static/icon.ico",
-			"publisherName": "Joseph Adams"
+			"signtoolOptions": {
+				"publisherName": "Joseph Adams"
+			}
 		},
 		"nsis": {
 			"oneClick": false,
@@ -56,7 +58,7 @@
 		"electron-debug": "^3.2.0",
 		"electron-store": "^8.0.0",
 		"electron-unhandled": "^3.0.2",
-		"electron-updater": "^4.3.8",
+		"electron-updater": "^6.8.9",
 		"electron-util": "^0.15.1",
 		"express": "^4.18.1",
 		"lodash": "^4.17.21",
@@ -66,8 +68,8 @@
 	},
 	"devDependencies": {
 		"@electron/notarize": "^2.5.0",
-		"electron": "^33.2.1",
-		"electron-builder": "^25.1.8",
+		"electron": "^45.0.0",
+		"electron-builder": "^26.15.3",
 		"jest": "^30.3.0",
 		"prettier": "^3.3.3",
 		"supertest": "^7.2.2"
